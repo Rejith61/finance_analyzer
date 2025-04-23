@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budget Forecast App</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-center text-gray-800">Budget Forecast Application</h1>
+            <p class="text-center text-gray-600 mt-2">Upload your spending data and predict future expenses</p>
+        </header>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">Input Data</h2>
+            
+            <form id="budget-form" enctype="multipart/form-data" class="space-y-4">
+                <div>
+                    <label for="salary" class="block text-sm font-medium text-gray-700 mb-1">Monthly Salary</label>
+                    <input type="number" id="salary" name="salary" required 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                           placeholder="Enter your monthly salary">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">CSV File Upload</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="file" id="csv-file" name="csv_file" accept=".csv" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        <button type="button" id="sample-csv" 
+                                class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm">
+                            Sample CSV
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Format: month,category,amount (with headers) - at least 3 months of data required</p>
+                </div>
+                
+                <div>
+                    <label for="forecast-months" class="block text-sm font-medium text-gray-700 mb-1">Forecast Months</label>
+                    <select id="forecast-months" name="forecast_months" 
+                            class="w-full sm:w-1/4 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="3">3 months</option>
+                        <option value="6">6 months</option>
+                        <option value="12">12 months</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <button type="submit" 
+                            class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                        Generate Forecast
+                    </button>
+                </div>
+                
+                <div id="error-message" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded"></div>
+                <div id="loading" class="hidden text-center">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+                    <p class="mt-2 text-gray-600">Processing your data...</p>
+                </div>
+            </form>
+        </div>
+
+        <div id="results" class="hidden space-y-8">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4">Budget Summary</h2>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr id="table-header">
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                                <!-- Dynamic headers will be added here -->
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Savings</th>
+                            </tr>
+                        </thead>
+                        <tbody id="forecast-table" class="bg-white divide-y divide-gray-200">
+                            <!-- Forecast data will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4">Expense Forecast Chart</h2>
+                <div class="h-96">
+                    <canvas id="forecast-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('budget-form');
+            const fileInput = document.getElementById('csv-file');
+            const sampleButton = document.getElementById('sample-csv');
+            const errorMessage = document.getElementById('error-message');
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            let forecastChart = null;
+
+            // Sample CSV data
+            sampleButton.addEventListener('click', function() {
+                const sampleContent = 'month,category,amount\n1,Rent,1200\n1,Food,500\n1,Utilities,150\n1,Entertainment,200\n1,Transport,300\n' +
+                                      '2,Rent,1200\n2,Food,520\n2,Utilities,155\n2,Entertainment,180\n2,Transport,310\n' +
+                                      '3,Rent,1250\n3,Food,530\n3,Utilities,160\n3,Entertainment,210\n3,Transport,320';
+                
+                // Create a Blob and a fake download
+                const blob = new Blob([sampleContent], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'sample_budget.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+
+            // Form submission
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                errorMessage.classList.add('hidden');
+                loading.classList.remove('hidden');
+                results.classList.add('hidden');
+                
+                if (forecastChart) {
+                    forecastChart.destroy();
+                }
+                
+                const formData = new FormData(form);
+                
+                try {
+                    const response = await fetch('/api/forecast', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.error || 'An error occurred while processing your request');
+                    }
+                    
+                    displayResults(data);
+                    loading.classList.add('hidden');
+                    results.classList.remove('hidden');
+                } catch (error) {
+                    console.error('Error:', error);
+                    errorMessage.textContent = error.message;
+                    errorMessage.classList.remove('hidden');
+                    loading.classList.add('hidden');
+                }
+            });
+
+            function displayResults(data) {
+    const tableHeader = document.getElementById('table-header');
+    const forecastTable = document.getElementById('forecast-table');
+    const forecastMonths = parseInt(document.getElementById('forecast-months').value);
+    
+    // Clear previous content
+    while (tableHeader.children.length > 1) {
+        tableHeader.removeChild(tableHeader.children[1]);
+    }
+    forecastTable.innerHTML = '';
+    
+    // Add category headers
+    data.categories.forEach(category => {
+        const th = document.createElement('th');
+        th.className = 'px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
+        th.textContent = category;
+        tableHeader.insertBefore(th, tableHeader.lastElementChild.previousElementSibling);
+    });
+    
+    // Determine the cutoff between historical and forecast data
+    const totalMonths = data.forecast.length;
+    const historicalMonthsCount = totalMonths - forecastMonths;
+    
+    // Add forecast rows
+    data.forecast.forEach((monthData, index) => {
+        const row = document.createElement('tr');
+        const monthNum = monthData.month;
+        
+        // Determine if this is historical or forecast data
+        const isHistorical = index < historicalMonthsCount;
+        row.className = isHistorical ? 'bg-blue-50' : '';
+        
+        // Month cell
+        const monthCell = document.createElement('td');
+        monthCell.className = 'px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900';
+        monthCell.textContent = `Month ${monthNum}${isHistorical ? ' (Historical)' : ' (Forecast)'}`;
+        row.appendChild(monthCell);
+        
+        // Category cells
+        let totalExpense = 0;
+        data.categories.forEach(category => {
+            const cell = document.createElement('td');
+            cell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
+            const amount = monthData[category] || 0;
+            cell.textContent = `$${amount.toFixed(2)}`;
+            row.appendChild(cell);
+            totalExpense += amount;
+        });
+        
+        // Total cell
+        const totalCell = document.createElement('td');
+        totalCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium';
+        totalCell.textContent = `$${totalExpense.toFixed(2)}`;
+        row.appendChild(totalCell);
+        
+        // Savings cell
+        const savingsCell = document.createElement('td');
+        savingsCell.className = 'px-6 py-4 whitespace-nowrap text-sm font-medium';
+        const savings = monthData.savings;
+        savingsCell.textContent = `$${savings.toFixed(2)}`;
+        savingsCell.classList.add(savings >= 0 ? 'text-green-600' : 'text-red-600');
+        row.appendChild(savingsCell);
+        
+        forecastTable.appendChild(row);
+    });
+    
+    // Create chart
+    createChart(data);
+}
+
+            function createChart(data) {
+                const ctx = document.getElementById('forecast-chart').getContext('2d');
+                
+                // Prepare data for chart
+                const labels = data.forecast.map(month => `Month ${month.month}`);
+                
+                const datasets = [];
+                
+                // Add category datasets
+                data.categories.forEach((category, index) => {
+                    datasets.push({
+                        label: category,
+                        data: data.forecast.map(month => month[category] || 0),
+                        borderColor: getColor(index),
+                        backgroundColor: getColor(index, 0.1),
+                        borderWidth: 2,
+                        tension: 0.1
+                    });
+                });
+                
+                // Add savings dataset
+                datasets.push({
+                    label: 'Savings',
+                    data: data.forecast.map(month => month.savings),
+                    borderColor: 'rgb(34, 197, 94)',
+                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.1
+                });
+                
+                // Create chart
+                forecastChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Amount ($)'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Month'
+                                }
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': $' + context.raw.toFixed(2);
+                                    }
+                                }
+                            },
+                            legend: {
+                                position: 'top'
+                            }
+                        }
+                    }
+                });
+            }
+
+            function getColor(index, alpha = 1) {
+                const colors = [
+                    `rgba(255, 99, 132, ${alpha})`,    // Red
+                    `rgba(54, 162, 235, ${alpha})`,    // Blue
+                    `rgba(255, 206, 86, ${alpha})`,    // Yellow
+                    `rgba(75, 192, 192, ${alpha})`,    // Teal
+                    `rgba(153, 102, 255, ${alpha})`,   // Purple
+                    `rgba(255, 159, 64, ${alpha})`,    // Orange
+                    `rgba(199, 199, 199, ${alpha})`,   // Gray
+                    `rgba(83, 102, 255, ${alpha})`,    // Indigo
+                    `rgba(255, 99, 255, ${alpha})`,    // Pink
+                    `rgba(99, 255, 132, ${alpha})`     // Light green
+                ];
+                
+                return colors[index % colors.length];
+            }
+        });
+    </script>
+</body>
+</html>
